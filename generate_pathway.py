@@ -158,8 +158,7 @@ ax.text(6.5, bp_cy + 0.13, '(indirect tests preferred)',
         ha='center', va='center', fontsize=9.5, style='italic',
         color='#444444', zorder=4)
 ax.text(6.5, bp_cy - 0.32,
-        'Consider when: symptoms persist despite SABA, diagnosis is uncertain,\n'
-        'or formal/objective documentation is required\n'
+        'Also consider when formal/objective documentation is required\n'
         '(e.g., elite athletes, military service, insurance, occupational clearance)',
         ha='center', va='center', fontsize=8.8, color=C_TEXT,
         linespacing=1.4, zorder=4)
