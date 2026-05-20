@@ -143,39 +143,55 @@ ln((10.0, 11.7), (10.0, 8.95))
 
 # ══════════════════════ MERGE → BRONCHOPROVOCATION ═══════════════════════
 ln((3.0, 8.95), (10.0, 8.95))
-arr(6.5, 8.95, 6.5, 8.45)
+arr(6.5, 8.95, 6.5, 8.55)
 
-rrect(6.5, 7.95, 5.6, 0.8,
-      'Bronchoprovocation testing\n(indirect tests preferred)³',
-      C_ACTION_F, C_ACTION_E, fs=11, bold=True)
-arr(6.5, 7.55, 6.5, 6.95)
+# Bronchoprovocation box — title + indications blurb
+bp_cy, bp_w, bp_h = 7.8, 7.0, 1.5
+bp = FancyBboxPatch((6.5 - bp_w/2, bp_cy - bp_h/2), bp_w, bp_h,
+                    boxstyle='round,pad=0.02,rounding_size=0.18',
+                    fc=C_ACTION_F, ec=C_ACTION_E, lw=1.6, zorder=3)
+ax.add_patch(bp)
+ax.text(6.5, bp_cy + 0.45, 'Bronchoprovocation testing³',
+        ha='center', va='center', fontsize=12, fontweight='bold',
+        color=C_TEXT, zorder=4)
+ax.text(6.5, bp_cy + 0.13, '(indirect tests preferred)',
+        ha='center', va='center', fontsize=9.5, style='italic',
+        color='#444444', zorder=4)
+ax.text(6.5, bp_cy - 0.32,
+        'Consider when: symptoms persist despite SABA, diagnosis is uncertain,\n'
+        'or formal/objective documentation is required\n'
+        '(e.g., elite athletes, military service, insurance, occupational clearance)',
+        ha='center', va='center', fontsize=8.8, color=C_TEXT,
+        linespacing=1.4, zorder=4)
 
-diamond(6.5, 6.4, 3.6, 0.9, 'Positive\nresult?⁴', fs=11)
+arr(6.5, 7.05, 6.5, 6.5)
+
+diamond(6.5, 6.05, 3.6, 0.9, 'Positive\nresult?⁴', fs=11)
 
 # Positive (left corner: 6.5 - 1.8 = 4.7)
-arr(4.7, 6.4, 4.7, 5.55)
-lbl(4.55, 6.45, 'Positive', fs=10, ha='right', color=C_YES)
-rrect(4.7, 5.1, 2.6, 0.75, 'Diagnose &\ntreat EIB',
+arr(4.7, 6.05, 4.7, 5.25)
+lbl(4.55, 6.10, 'Positive', fs=10, ha='right', color=C_YES)
+rrect(4.7, 4.8, 2.6, 0.75, 'Diagnose &\ntreat EIB',
       C_TREAT_F, C_TREAT_E, fs=11.5, bold=True)
 
 # Negative (right corner)
-arr(8.3, 6.4, 8.3, 5.55)
-lbl(8.45, 6.45, 'Negative', fs=10, ha='left', color=C_NO)
-rrect(8.3, 5.1, 3.3, 0.75,
+arr(8.3, 6.05, 8.3, 5.25)
+lbl(8.45, 6.10, 'Negative', fs=10, ha='left', color=C_NO)
+rrect(8.3, 4.8, 3.3, 0.75,
       'Evaluate for\nalternative diagnoses',
       C_ALT_F, C_ALT_E, fs=10.5, bold=True)
 
 # ══════════════════════ LEGEND / REFERENCE BOX ════════════════════════════
-legend = FancyBboxPatch((0.3, 0.3), 12.4, 3.85,
+legend = FancyBboxPatch((0.3, 0.3), 12.4, 3.55,
                         boxstyle='round,pad=0.02,rounding_size=0.18',
                         fc=C_LEGEND_BG, ec=C_LEGEND_EDGE, lw=1.2, zorder=2)
 ax.add_patch(legend)
 
 # Legend header
-ax.text(6.5, 3.85, 'Key Definitions & Diagnostic Criteria',
+ax.text(6.5, 3.55, 'Key Definitions & Diagnostic Criteria',
         ha='center', va='center', fontsize=11.5, fontweight='bold',
         color=C_TITLE, zorder=4)
-ax.plot([1.0, 12.0], [3.6, 3.6], color=C_LEGEND_EDGE, lw=0.8, zorder=3)
+ax.plot([1.0, 12.0], [3.3, 3.3], color=C_LEGEND_EDGE, lw=0.8, zorder=3)
 
 # Numbered notes
 notes = [
@@ -184,24 +200,18 @@ notes = [
     ('²  Important — ',
      'Symptom improvement alone does NOT confirm EIB. Normal resting spirometry does NOT exclude EIB.'),
     ('³  Indirect tests (preferred) — ',
-     'standardized exercise challenge, eucapnic voluntary hyperpnea (EVH),\n      mannitol challenge, or hypertonic saline challenge.   Direct (methacholine) is less specific for EIB.'),
+     'standardized exercise challenge, eucapnic voluntary hyperpnea (EVH), mannitol challenge,\n      or hypertonic saline challenge.   Direct (methacholine) is less specific for EIB.'),
     ('⁴  Positive bronchoprovocation — ',
      'FEV₁ ↓ ≥10% from baseline (exercise / EVH);   FEV₁ ↓ ≥15% (mannitol / hypertonic saline).'),
-    ('Persistent symptoms despite SABA, diagnostic uncertainty, or need for objective documentation → bronchoprovocation.',
-     ''),
 ]
 
-y = 3.2
+y = 2.95
 for key, body in notes:
     ax.text(0.8, y, key, ha='left', va='top', fontsize=9.2,
             fontweight='bold', color=C_TITLE, zorder=4)
-    if body:
-        # Compute offset by character width approximation; use separate line if too long
-        ax.text(0.8, y - 0.32, body, ha='left', va='top', fontsize=9.2,
-                color=C_TEXT, zorder=4, linespacing=1.4)
-        y -= 0.78
-    else:
-        y -= 0.45
+    ax.text(0.8, y - 0.30, body, ha='left', va='top', fontsize=9.2,
+            color=C_TEXT, zorder=4, linespacing=1.4)
+    y -= 0.65
 
 # Abbreviations footer
 ax.text(6.5, 0.5,
