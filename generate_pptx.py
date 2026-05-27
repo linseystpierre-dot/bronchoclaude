@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate an editable PowerPoint version of the EIB spirometry pathway.
+"""EIB pathway — editable PowerPoint with connected arrows.
 
-Every box, diamond, arrow, and label is a native PowerPoint shape, so the
-clinician can drag, recolor, resize, or edit text directly in PowerPoint.
+Every connector is wired to its source/destination shape via OOXML
+stCxn/endCxn references, so moving a box in PowerPoint drags the
+connected arrows with it.
 """
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -12,7 +13,7 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.oxml.ns import qn
 from lxml import etree
 
-# ── Palette (RGB) ─────────────────────────────────────────────────────────
+# ─── Palette ──────────────────────────────────────────────────────────────
 C_TITLE       = RGBColor(0x1F, 0x4E, 0x5F)
 C_HEADER_FILL = RGBColor(0x2C, 0x5F, 0x7C)
 C_HEADER_TX   = RGBColor(0xFF, 0xFF, 0xFF)
@@ -33,281 +34,270 @@ C_NO          = RGBColor(0xB0, 0x52, 0x4C)
 C_GRAY_TX     = RGBColor(0x55, 0x55, 0x55)
 C_SUB_TX      = RGBColor(0x44, 0x44, 0x44)
 
-# ── Slide setup ───────────────────────────────────────────────────────────
-prs = Presentation()
-prs.slide_width  = Inches(10)
-prs.slide_height = Inches(14)
+I = Inches
 
+prs = Presentation()
+prs.slide_width  = I(10)
+prs.slide_height = I(14)
 slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────
-def shape(shp_type, cx, cy, w, h, fill=None, line=None, line_w=1.5):
-    """Add a shape centered at (cx, cy) in inches; return the shape."""
+# ─── Shape helpers ────────────────────────────────────────────────────────
+
+def add_shape(shp_type, cx, cy, w, h, fill=None, line_color=None, line_w=1.5):
     s = slide.shapes.add_shape(
-        shp_type,
-        Inches(cx - w / 2), Inches(cy - h / 2),
-        Inches(w), Inches(h),
+        shp_type, I(cx - w/2), I(cy - h/2), I(w), I(h)
     )
-    if fill is not None:
-        s.fill.solid()
+    s.fill.solid() if fill else s.fill.background()
+    if fill:
         s.fill.fore_color.rgb = fill
-    if line is not None:
-        s.line.color.rgb = line
+    if line_color:
+        s.line.color.rgb = line_color
         s.line.width = Pt(line_w)
+    else:
+        s.line.fill.background()
     s.shadow.inherit = False
     return s
 
 
-def set_text(shp, runs, vertical='middle'):
-    """Set text in a shape. `runs` is a list of paragraph dicts:
-       [{'text': str, 'size': float, 'bold': bool, 'italic': bool,
-         'color': RGBColor}]  – each entry becomes its own paragraph."""
+def set_text(shp, paragraphs):
     tf = shp.text_frame
     tf.word_wrap = True
-    tf.margin_left = Inches(0.06)
-    tf.margin_right = Inches(0.06)
-    tf.margin_top = Inches(0.03)
-    tf.margin_bottom = Inches(0.03)
-    if vertical == 'middle':
-        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    elif vertical == 'top':
-        tf.vertical_anchor = MSO_ANCHOR.TOP
-
-    for i, r in enumerate(runs):
-        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        p.alignment = PP_ALIGN.CENTER
-        # clear any default run text
-        for child in list(p._pPr.getparent()) if p._pPr is not None else []:
-            pass
-        run = p.add_run()
-        run.text = r['text']
-        run.font.size = Pt(r.get('size', 10))
-        run.font.bold = r.get('bold', False)
-        run.font.italic = r.get('italic', False)
+    tf.margin_left = tf.margin_right = I(0.07)
+    tf.margin_top = tf.margin_bottom = I(0.04)
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    for i, p in enumerate(paragraphs):
+        para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        para.alignment = PP_ALIGN.CENTER
+        run = para.add_run()
+        run.text = p['text']
+        run.font.size = Pt(p.get('size', 10))
+        run.font.bold = p.get('bold', False)
+        run.font.italic = p.get('italic', False)
         run.font.name = 'Calibri'
-        if 'color' in r:
-            run.font.color.rgb = r['color']
+        if 'color' in p:
+            run.font.color.rgb = p['color']
 
 
-def textbox(cx, cy, w, h, runs, align='center', vertical='top'):
-    """Add a plain textbox (no fill/border)."""
-    tb = slide.shapes.add_textbox(
-        Inches(cx - w / 2), Inches(cy - h / 2), Inches(w), Inches(h)
-    )
+def add_textbox(cx, cy, w, h, paragraphs, align='center'):
+    tb = slide.shapes.add_textbox(I(cx - w/2), I(cy - h/2), I(w), I(h))
     tf = tb.text_frame
     tf.word_wrap = True
-    tf.margin_left = Inches(0.02)
-    tf.margin_right = Inches(0.02)
-    tf.margin_top = Inches(0.02)
-    tf.margin_bottom = Inches(0.02)
-    if vertical == 'middle':
-        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    elif vertical == 'top':
-        tf.vertical_anchor = MSO_ANCHOR.TOP
-
-    for i, r in enumerate(runs):
-        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        if align == 'center':
-            p.alignment = PP_ALIGN.CENTER
-        elif align == 'left':
-            p.alignment = PP_ALIGN.LEFT
-        run = p.add_run()
-        run.text = r['text']
-        run.font.size = Pt(r.get('size', 10))
-        run.font.bold = r.get('bold', False)
-        run.font.italic = r.get('italic', False)
+    tf.margin_left = tf.margin_right = I(0.03)
+    tf.margin_top = tf.margin_bottom = I(0.02)
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    pp_align = PP_ALIGN.CENTER if align == 'center' else PP_ALIGN.LEFT
+    for i, p in enumerate(paragraphs):
+        para = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        para.alignment = pp_align
+        run = para.add_run()
+        run.text = p['text']
+        run.font.size = Pt(p.get('size', 10))
+        run.font.bold = p.get('bold', False)
+        run.font.italic = p.get('italic', False)
         run.font.name = 'Calibri'
-        if 'color' in r:
-            run.font.color.rgb = r['color']
+        if 'color' in p:
+            run.font.color.rgb = p['color']
     return tb
 
 
-def line_or_arrow(x1, y1, x2, y2, arrow=False, color=None, width=1.5):
-    conn = slide.shapes.add_connector(
-        MSO_CONNECTOR.STRAIGHT,
-        Inches(x1), Inches(y1), Inches(x2), Inches(y2),
-    )
-    conn.line.color.rgb = color if color is not None else C_ARROW
-    conn.line.width = Pt(width)
-    if arrow:
-        ln = conn.line._get_or_add_ln()
-        tail = etree.SubElement(ln, qn('a:tailEnd'))
-        tail.set('type', 'triangle')
-        tail.set('w', 'med')
-        tail.set('len', 'med')
+# Connection point indices for preset shapes (roundRect, diamond):
+#   0 = top center, 1 = right center, 2 = bottom center, 3 = left center
+_CXN = {
+    0: (0.5, 0.0),
+    1: (1.0, 0.5),
+    2: (0.5, 1.0),
+    3: (0.0, 0.5),
+}
+
+def _pt(shp, idx):
+    fx, fy = _CXN[idx]
+    return shp.left + int(shp.width * fx), shp.top + int(shp.height * fy)
+
+
+def arrow(src, src_idx, dst, dst_idx, ctype=MSO_CONNECTOR.ELBOW):
+    """Add an arrowhead connector wired to src and dst shapes."""
+    sx, sy = _pt(src, src_idx)
+    dx, dy = _pt(dst, dst_idx)
+    conn = slide.shapes.add_connector(ctype, sx, sy, dx, dy)
+    conn.line.color.rgb = C_ARROW
+    conn.line.width = Pt(1.6)
+
+    # Arrowhead at the destination end
+    ln = conn.line._get_or_add_ln()
+    tail = etree.SubElement(ln, qn('a:tailEnd'))
+    tail.set('type', 'triangle')
+    tail.set('w', 'med')
+    tail.set('len', 'med')
+
+    # Wire stCxn / endCxn so PowerPoint knows which shapes are connected
+    cNvCxnSpPr = (conn._element
+                  .find(qn('p:nvCxnSpPr'))
+                  .find(qn('p:cNvCxnSpPr')))
+    etree.SubElement(cNvCxnSpPr, qn('a:stCxn'),
+                     {'id': str(src.shape_id), 'idx': str(src_idx)})
+    etree.SubElement(cNvCxnSpPr, qn('a:endCxn'),
+                     {'id': str(dst.shape_id), 'idx': str(dst_idx)})
     return conn
 
 
-def line(x1, y1, x2, y2, color=None, width=1.5):
-    return line_or_arrow(x1, y1, x2, y2, arrow=False, color=color, width=width)
+S = MSO_CONNECTOR.STRAIGHT
+E = MSO_CONNECTOR.ELBOW
 
 
-def arrow(x1, y1, x2, y2, color=None, width=1.5):
-    return line_or_arrow(x1, y1, x2, y2, arrow=True, color=color, width=width)
+# ═══════════════════════════════════════════════════════════════════════════
+# SHAPES  (create first so IDs are known before connectors reference them)
+# ═══════════════════════════════════════════════════════════════════════════
 
-
-# ══════════════════════════════════════════════════════════════════════════
-# CHART
-# ══════════════════════════════════════════════════════════════════════════
-
-# ── Title ─────────────────────────────────────────────────────────────────
-textbox(5, 0.4, 9, 0.45, [
+# Title
+add_textbox(5, 0.40, 9, 0.45, [
     {'text': 'Evaluation of Suspected Exercise-Induced Bronchoconstriction',
-     'size': 16, 'bold': True, 'color': C_TITLE},
-], vertical='middle')
-textbox(5, 0.78, 9, 0.3, [
+     'size': 16, 'bold': True, 'color': C_TITLE}])
+add_textbox(5, 0.78, 9, 0.30, [
     {'text': 'A clinical decision pathway',
-     'size': 10.5, 'italic': True, 'color': C_GRAY_TX},
-], vertical='middle')
+     'size': 10.5, 'italic': True, 'color': C_GRAY_TX}])
 
-# ── 1. Symptoms header chip ───────────────────────────────────────────────
-s = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 5, 1.20, 4.0, 0.50,
-          fill=C_HEADER_FILL, line=C_HEADER_FILL)
-set_text(s, [{'text': 'Symptoms suggestive of EIB',
-              'size': 13, 'bold': True, 'color': C_HEADER_TX}])
-arrow(5, 1.45, 5, 1.70)
+# Header chip
+sym = add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 5, 1.20, 4.0, 0.50,
+                fill=C_HEADER_FILL, line_color=C_HEADER_FILL)
+set_text(sym, [{'text': 'Symptoms suggestive of EIB',
+                'size': 13, 'bold': True, 'color': C_HEADER_TX}])
 
-# ── 2. Spirometry ─────────────────────────────────────────────────────────
-s = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 5, 1.95, 3.6, 0.50,
-          fill=C_ACTION_F, line=C_ACTION_E)
-set_text(s, [{'text': 'Baseline spirometry',
-              'size': 13, 'bold': True, 'color': C_TEXT}])
+# Spirometry
+spi = add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 5, 1.95, 3.6, 0.50,
+                fill=C_ACTION_F, line_color=C_ACTION_E)
+set_text(spi, [{'text': 'Baseline spirometry',
+                'size': 13, 'bold': True, 'color': C_TEXT}])
 
-# Branch lines from spirometry
-line(5, 2.20, 5, 2.45)
-line(2.3, 2.45, 7.7, 2.45)
-arrow(2.3, 2.45, 2.3, 2.75)
-arrow(7.7, 2.45, 7.7, 2.75)
-textbox(2.3, 2.36, 2.6, 0.22, [
-    {'text': 'Airflow obstruction',
-     'size': 10, 'bold': True, 'color': C_TITLE}], vertical='middle')
-textbox(7.7, 2.36, 2.6, 0.22, [
-    {'text': 'Normal spirometry',
-     'size': 10, 'bold': True, 'color': C_TITLE}], vertical='middle')
+# Branch labels (floating, no connections needed)
+add_textbox(2.3, 2.36, 2.8, 0.22,
+            [{'text': 'Airflow obstruction', 'size': 10, 'bold': True, 'color': C_TITLE}])
+add_textbox(7.7, 2.36, 2.8, 0.22,
+            [{'text': 'Normal spirometry', 'size': 10, 'bold': True, 'color': C_TITLE}])
 
-# ══════════════════════ LEFT BRANCH ═══════════════════════════════════════
-s = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 2.3, 3.05, 2.9, 0.55,
-          fill=C_ACTION_F, line=C_ACTION_E)
-set_text(s, [{'text': 'Bronchodilator\nreversibility testing',
-              'size': 11, 'bold': True, 'color': C_TEXT}])
-arrow(2.3, 3.325, 2.3, 3.60)
+# ── Left branch ────────────────────────────────────────────────────────────
+bdr = add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 2.3, 3.05, 2.9, 0.55,
+                fill=C_ACTION_F, line_color=C_ACTION_E)
+set_text(bdr, [{'text': 'Bronchodilator reversibility testing',
+                'size': 11, 'bold': True, 'color': C_TEXT}])
 
-# Decision diamond
-s = shape(MSO_SHAPE.DIAMOND, 2.3, 4.00, 2.4, 0.80,
-          fill=C_DECISION_F, line=C_DECISION_E)
-set_text(s, [{'text': 'Reversible?¹',
-              'size': 12, 'bold': True, 'color': C_TEXT}])
+rev = add_shape(MSO_SHAPE.DIAMOND, 2.3, 4.00, 2.4, 0.80,
+                fill=C_DECISION_F, line_color=C_DECISION_E)
+set_text(rev, [{'text': 'Reversible?¹', 'size': 12, 'bold': True, 'color': C_TEXT}])
 
-# Yes → left
-arrow(1.10, 4.00, 1.10, 4.50)
-textbox(1.0, 4.05, 0.6, 0.22, [
-    {'text': 'Yes', 'size': 11, 'bold': True, 'italic': True, 'color': C_YES}],
-    align='center', vertical='middle')
-s = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 1.10, 4.78, 1.85, 0.55,
-          fill=C_TREAT_F, line=C_TREAT_E)
-set_text(s, [{'text': 'Treat as\nasthma + EIB',
-              'size': 11, 'bold': True, 'color': C_TEXT}])
+ast = add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 1.10, 4.78, 1.85, 0.55,
+                fill=C_TREAT_F, line_color=C_TREAT_E)
+set_text(ast, [{'text': 'Treat as asthma + EIB',
+                'size': 11, 'bold': True, 'color': C_TEXT}])
 
-# No → down (to merge)
-textbox(2.50, 4.45, 0.4, 0.22, [
-    {'text': 'No', 'size': 11, 'bold': True, 'italic': True, 'color': C_NO}],
-    align='left', vertical='middle')
-line(2.3, 4.40, 2.3, 5.85)
+# ── Right branch ───────────────────────────────────────────────────────────
+sab = add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 7.7, 3.05, 3.4, 0.55,
+                fill=C_ACTION_F, line_color=C_ACTION_E)
+set_text(sab, [{'text': 'Empiric pre-exercise SABA (15–30 min before exercise)',
+                'size': 11, 'bold': True, 'color': C_TEXT}])
 
-# ══════════════════════ RIGHT BRANCH ══════════════════════════════════════
-s = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 7.7, 3.05, 3.4, 0.55,
-          fill=C_ACTION_F, line=C_ACTION_E)
-set_text(s, [{'text': 'Empiric pre-exercise SABA\n(15–30 min before exercise)',
-              'size': 11, 'bold': True, 'color': C_TEXT}])
-arrow(7.7, 3.325, 7.7, 3.60)
+res = add_shape(MSO_SHAPE.DIAMOND, 7.7, 4.00, 2.4, 0.80,
+                fill=C_DECISION_F, line_color=C_DECISION_E)
+set_text(res, [{'text': 'Symptoms\nresolved?²', 'size': 12, 'bold': True, 'color': C_TEXT}])
 
-s = shape(MSO_SHAPE.DIAMOND, 7.7, 4.00, 2.4, 0.80,
-          fill=C_DECISION_F, line=C_DECISION_E)
-set_text(s, [{'text': 'Symptoms\nresolved?²',
-              'size': 12, 'bold': True, 'color': C_TEXT}])
+con = add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 8.90, 4.78, 1.95, 0.55,
+                fill=C_TREAT_F, line_color=C_TREAT_E)
+set_text(con, [{'text': 'Continue pre-exercise SABA',
+                'size': 11, 'bold': True, 'color': C_TEXT}])
 
-# Yes → right
-arrow(8.90, 4.00, 8.90, 4.50)
-textbox(9.00, 4.05, 0.6, 0.22, [
-    {'text': 'Yes', 'size': 11, 'bold': True, 'italic': True, 'color': C_YES}],
-    align='center', vertical='middle')
-s = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 8.90, 4.78, 1.95, 0.55,
-          fill=C_TREAT_F, line=C_TREAT_E)
-set_text(s, [{'text': 'Continue\npre-exercise SABA',
-              'size': 11, 'bold': True, 'color': C_TEXT}])
-
-# No → down (to merge)
-textbox(7.90, 4.45, 0.4, 0.22, [
-    {'text': 'No', 'size': 11, 'bold': True, 'italic': True, 'color': C_NO}],
-    align='left', vertical='middle')
-line(7.7, 4.40, 7.7, 5.85)
-
-# ══════════════════════ MERGE → BRONCHOPROVOCATION ════════════════════════
-line(2.3, 5.85, 7.7, 5.85)
-arrow(5, 5.85, 5, 6.15)
-
-# Bronchoprovocation box — title + indications blurb
-s = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 5, 6.75, 6.2, 1.20,
-          fill=C_ACTION_F, line=C_ACTION_E)
-set_text(s, [
+# ── Bronchoprovocation ─────────────────────────────────────────────────────
+bp = add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 5, 6.75, 6.2, 1.20,
+               fill=C_ACTION_F, line_color=C_ACTION_E)
+set_text(bp, [
     {'text': 'Bronchoprovocation testing³',
      'size': 13.5, 'bold': True, 'color': C_TEXT},
     {'text': '(indirect tests preferred)',
      'size': 10.5, 'italic': True, 'color': C_SUB_TX},
-    {'text': ' ', 'size': 4, 'color': C_TEXT},
+    {'text': ' ', 'size': 4},
     {'text': 'Also consider when formal/objective documentation is required',
      'size': 10, 'color': C_TEXT},
     {'text': '(e.g., elite athletes, military service, insurance, occupational clearance)',
      'size': 10, 'color': C_TEXT},
 ])
 
-arrow(5, 7.35, 5, 7.65)
+# ── Result ─────────────────────────────────────────────────────────────────
+pos = add_shape(MSO_SHAPE.DIAMOND, 5, 8.05, 2.4, 0.80,
+                fill=C_DECISION_F, line_color=C_DECISION_E)
+set_text(pos, [{'text': 'Positive\nresult?⁴', 'size': 12, 'bold': True, 'color': C_TEXT}])
 
-# Result diamond
-s = shape(MSO_SHAPE.DIAMOND, 5, 8.05, 2.4, 0.80,
-          fill=C_DECISION_F, line=C_DECISION_E)
-set_text(s, [{'text': 'Positive\nresult?⁴',
-              'size': 12, 'bold': True, 'color': C_TEXT}])
+dxs = add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 3.80, 8.83, 2.0, 0.55,
+                fill=C_TREAT_F, line_color=C_TREAT_E)
+set_text(dxs, [{'text': 'Diagnose & treat EIB',
+                'size': 12, 'bold': True, 'color': C_TEXT}])
 
-# Positive (left corner: 5 - 1.2 = 3.8)
-arrow(3.80, 8.05, 3.80, 8.55)
-textbox(3.45, 8.10, 0.7, 0.22, [
-    {'text': 'Positive', 'size': 10.5, 'bold': True, 'italic': True,
-     'color': C_YES}], align='right', vertical='middle')
-s = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 3.80, 8.83, 2.0, 0.55,
-          fill=C_TREAT_F, line=C_TREAT_E)
-set_text(s, [{'text': 'Diagnose &\ntreat EIB',
-              'size': 12, 'bold': True, 'color': C_TEXT}])
+alt = add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 6.20, 8.83, 2.5, 0.55,
+                fill=C_ALT_F, line_color=C_ALT_E)
+set_text(alt, [{'text': 'Evaluate for alternative diagnoses',
+                'size': 11, 'bold': True, 'color': C_TEXT}])
 
-# Negative (right corner: 5 + 1.2 = 6.2)
-arrow(6.20, 8.05, 6.20, 8.55)
-textbox(6.55, 8.10, 0.8, 0.22, [
-    {'text': 'Negative', 'size': 10.5, 'bold': True, 'italic': True,
-     'color': C_NO}], align='left', vertical='middle')
-s = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 6.20, 8.83, 2.5, 0.55,
-          fill=C_ALT_F, line=C_ALT_E)
-set_text(s, [{'text': 'Evaluate for\nalternative diagnoses',
-              'size': 11, 'bold': True, 'color': C_TEXT}])
 
-# ══════════════════════ LEGEND ════════════════════════════════════════════
-legend = shape(MSO_SHAPE.ROUNDED_RECTANGLE, 5.0, 11.55, 9.4, 3.2,
-               fill=C_LEGEND_BG, line=C_LEGEND_EDGE, line_w=1.0)
+# ═══════════════════════════════════════════════════════════════════════════
+# CONNECTED ARROWS  (created after shapes so shape IDs are stable)
+# ═══════════════════════════════════════════════════════════════════════════
+#   Connection point index: 0=top  1=right  2=bottom  3=left
 
-# Legend header (as separate textbox so it sits visually inside)
-textbox(5.0, 10.20, 9.0, 0.32, [
+arrow(sym, 2, spi, 0, S)   # symptoms → spirometry
+arrow(spi, 2, bdr, 0, E)   # spirometry → bronchodilator (elbow left)
+arrow(spi, 2, sab, 0, E)   # spirometry → SABA (elbow right)
+arrow(bdr, 2, rev, 0, S)   # bronchodilator → reversible?
+arrow(rev, 3, ast, 0, E)   # reversible Yes → treat asthma
+arrow(rev, 2, bp,  0, E)   # reversible No  → bronchoprovocation
+arrow(sab, 2, res, 0, S)   # SABA → symptoms resolved?
+arrow(res, 1, con, 0, E)   # resolved Yes → continue SABA
+arrow(res, 2, bp,  0, E)   # resolved No  → bronchoprovocation
+arrow(bp,  2, pos, 0, S)   # bronchoprovocation → positive result?
+arrow(pos, 3, dxs, 0, E)   # positive → diagnose EIB
+arrow(pos, 1, alt, 0, E)   # negative → alternative diagnoses
+
+# Yes/No labels (floating textboxes)
+add_textbox(0.90, 4.06, 0.7, 0.22,
+            [{'text': 'Yes', 'size': 10.5, 'bold': True,
+              'italic': True, 'color': C_YES}], align='center')
+add_textbox(2.52, 4.46, 0.5, 0.22,
+            [{'text': 'No', 'size': 10.5, 'bold': True,
+              'italic': True, 'color': C_NO}], align='center')
+add_textbox(9.08, 4.06, 0.7, 0.22,
+            [{'text': 'Yes', 'size': 10.5, 'bold': True,
+              'italic': True, 'color': C_YES}], align='center')
+add_textbox(7.92, 4.46, 0.5, 0.22,
+            [{'text': 'No', 'size': 10.5, 'bold': True,
+              'italic': True, 'color': C_NO}], align='center')
+add_textbox(3.55, 8.11, 0.9, 0.22,
+            [{'text': 'Positive', 'size': 10.5, 'bold': True,
+              'italic': True, 'color': C_YES}], align='center')
+add_textbox(6.45, 8.11, 0.9, 0.22,
+            [{'text': 'Negative', 'size': 10.5, 'bold': True,
+              'italic': True, 'color': C_NO}], align='center')
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LEGEND
+# ═══════════════════════════════════════════════════════════════════════════
+
+add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, 5.0, 11.55, 9.4, 3.2,
+          fill=C_LEGEND_BG, line_color=C_LEGEND_EDGE, line_w=1.0)
+
+add_textbox(5.0, 10.20, 9.0, 0.32, [
     {'text': 'Key Definitions & Diagnostic Criteria',
-     'size': 12, 'bold': True, 'color': C_TITLE}], vertical='middle')
+     'size': 12, 'bold': True, 'color': C_TITLE}])
 
-# Underline divider
-line(0.9, 10.42, 9.1, 10.42, color=C_LEGEND_EDGE, width=0.8)
+# Divider
+div = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT,
+                                  I(0.9), I(10.42), I(9.1), I(10.42))
+div.line.color.rgb = C_LEGEND_EDGE
+div.line.width = Pt(0.8)
 
-# Numbered notes — one textbox per note for easy editing
 notes = [
     ('¹  Reversible — ',
      'FEV₁ increase ≥12% AND ≥200 mL after bronchodilator (supports asthma).'),
     ('²  Important — ',
-     'Symptom improvement alone does NOT confirm EIB. Normal resting spirometry does NOT exclude EIB.'),
+     'Symptom improvement alone does NOT confirm EIB. '
+     'Normal resting spirometry does NOT exclude EIB.'),
     ('³  Indirect tests (preferred) — ',
      'standardized exercise challenge, eucapnic voluntary hyperpnea (EVH), '
      'mannitol challenge, or hypertonic saline challenge. '
@@ -316,46 +306,33 @@ notes = [
      'FEV₁ ↓ ≥10% from baseline (exercise / EVH);   '
      'FEV₁ ↓ ≥15% (mannitol / hypertonic saline).'),
 ]
-
 y = 10.65
 for key, body in notes:
-    tb = slide.shapes.add_textbox(
-        Inches(0.7), Inches(y), Inches(8.6), Inches(0.62)
-    )
+    tb = slide.shapes.add_textbox(I(0.7), I(y), I(8.6), I(0.62))
     tf = tb.text_frame
     tf.word_wrap = True
-    tf.margin_left = Inches(0.02)
-    tf.margin_right = Inches(0.02)
-    tf.margin_top = Inches(0.02)
-    tf.margin_bottom = Inches(0.02)
-
-    p = tf.paragraphs[0]
-    p.alignment = PP_ALIGN.LEFT
-    r1 = p.add_run()
-    r1.text = key
-    r1.font.size = Pt(10.5)
-    r1.font.bold = True
-    r1.font.color.rgb = C_TITLE
-    r1.font.name = 'Calibri'
-
-    r2 = p.add_run()
-    r2.text = body
-    r2.font.size = Pt(10.5)
-    r2.font.color.rgb = C_TEXT
-    r2.font.name = 'Calibri'
-
+    tf.margin_left = tf.margin_right = I(0.02)
+    tf.margin_top = tf.margin_bottom = I(0.02)
+    para = tf.paragraphs[0]
+    para.alignment = PP_ALIGN.LEFT
+    for txt, bold, color in [(key, True, C_TITLE), (body, False, C_TEXT)]:
+        r = para.add_run()
+        r.text = txt
+        r.font.size = Pt(10.5)
+        r.font.bold = bold
+        r.font.color.rgb = color
+        r.font.name = 'Calibri'
     y += 0.62
 
-# Abbreviations footer
-textbox(5.0, 13.45, 9.2, 0.30, [
+add_textbox(5.0, 13.45, 9.2, 0.30, [
     {'text': ('EIB = exercise-induced bronchoconstriction   |   '
               'SABA = short-acting β₂-agonist   |   '
               'EVH = eucapnic voluntary hyperpnea   |   '
               'FEV₁ = forced expiratory volume in 1 second'),
-     'size': 8.5, 'italic': True, 'color': C_GRAY_TX}],
-    vertical='middle')
+     'size': 8.5, 'italic': True, 'color': C_GRAY_TX}])
 
-# ── Save ──────────────────────────────────────────────────────────────────
+
+# ─── Save ──────────────────────────────────────────────────────────────────
 out = '/home/user/bronchoclaude/spirometry_pathway.pptx'
 prs.save(out)
 print(f'Saved {out}')
